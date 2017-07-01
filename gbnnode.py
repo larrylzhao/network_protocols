@@ -25,8 +25,13 @@ windowsize = 0
 dropmode = "" #d(deterministic) or p(probabilistic)
 n = 0
 p = 0
+requestnum = 0
 sequencebase = 0
 sequencemax = 0
+
+buffersize = 0
+bufferindex = 0
+sendingindex = 0
 sendingbuffer = []
 timer = 0
 
@@ -59,25 +64,56 @@ Thread for listening to incoming UDP messages
 
 
 """
+sending buffer
+"""
+def buffer_add(packet):
+    global sendingbuffer
+    global bufferindex
+    while sendingbuffer[bufferindex] is not None:
+        pass
+    sendingbuffer[bufferindex] = packet
+    bufferindex += 1
+    if bufferindex >= len(sendingbuffer):
+        bufferindex = 0
+    print sendingbuffer
+
+"""
 sending function
 """
-def sendmessage():
-    sendsocket = socket(AF_INET, SOCK_DGRAM)
-    sendsocket.settimeout(.5)
-    while len(sendingbuffer) > 0:
-        sendsocket.sendto(message, (ip, peerport))
-        try:
-            data, sender = sendsocket.recvfrom(1024)
-        except timeout:
-            print ">>> [No ACK from <" + recipient + ">, message sent to server.]"
-            chattimeout = offline_chat(message)
-            if chattimeout is True:
-                break
-        else:
-            for name in clientTable:
-                if sender[0] == clientTable[name]['ip'] and sender[1] == clientTable[name]['port']:
-                    print ">>> [Message received by <" + name + ">.]"
-    sendsocket.close()
+def send_message():
+    while True:
+        global sendingbuffer
+        global bufferindex
+        global sequencebase
+        global sequencemax
+        nextseqnum = 0
+        # sendsocket = socket(AF_INET, SOCK_DGRAM)
+        # sendsocket.settimeout(.5)
+        while sendingbuffer[sequencebase] is not None:
+            # print "meow ", sequencebase, " ", sequencemax
+            for i in range(sequencebase, sequencemax):
+                split = sendingbuffer[i].split(";")
+                print "[" + str(datetime.datetime.now()) +"] packet" + split[0] + " " + split[1] + " sent"
+                sendingbuffer[nextseqnum] = None
+                nextseqnum += 1
+                if nextseqnum >= len(sendingbuffer):
+                    nextseqnum = 0
+                if sendingbuffer[nextseqnum] is None:
+                    break
+
+        #     sendsocket.sendto(me, (ip, peerport))
+        #     try:
+        #         data, sender = sendsocket.recvfrom(1024)
+        #     except timeout:
+        #         print ">>> [No ACK from <" + recipient + ">, message sent to server.]"
+        #         chattimeout = offline_chat(message)
+        #         if chattimeout is True:
+        #             break
+        #     else:
+        #         for name in clientTable:
+        #             if sender[0] == clientTable[name]['ip'] and sender[1] == clientTable[name]['port']:
+        #                 print ">>> [Message received by <" + name + ">.]"
+        # sendsocket.close()
 
 
 """
@@ -95,8 +131,10 @@ def input():
                     message = find.group(1)
                     print "message: ", message
                     # split message into list of chars
-                    sendingbuffer = list(message)
-                    sendmessage()
+                    messagelist = list(message)
+                    for i in range(0, len(messagelist)):
+                        packet = str(i) + ";" + str(messagelist[i])
+                        buffer_add(packet)
 
 
 
@@ -107,71 +145,89 @@ def input():
 
 
 
-"""
-argument parser
-./gbnnode.py 6000 6001 5 -d 3
-./gbnnode.py 6000 6001 5 -p 0.333
-"""
-goodArgs = True
-if len(sys.argv) > 1:
-    selfport = int(sys.argv[1])
-    if selfport >= 1024 and selfport <= 65535:
-        print "self port number: ", selfport
-    else:
-        print "please give a self port number between 1024 and 65535"
-        exit()
-if len(sys.argv) > 2:
-    peerport = int(sys.argv[2])
-    if peerport >= 1024 and peerport <= 65535:
-        print "peer port number: ", peerport
-    else:
-        print "please give a peer port number between 1024 and 65535"
-        exit()
-if len(sys.argv) > 3:
-    windowsize = int(sys.argv[3])
-    print "window size: ", windowsize
-    if len(sys.argv) > 4:
-        if sys.argv[4] == "-d":
-            dropmode = "d"
-            if len(sys.argv) > 5:
-                n = int(sys.argv[5])
-                print "deterministic drop rate: ", n
+def main():
+    """
+    argument parser
+    ./gbnnode.py 6000 6001 5 -d 3
+    ./gbnnode.py 6000 6001 5 -p 0.333
+    """
+    global selfport, peerport, windowsize, dropmode, n, p, sequencemax
+
+    goodArgs = True
+    if len(sys.argv) > 1:
+        selfport = int(sys.argv[1])
+        if selfport >= 1024 and selfport <= 65535:
+            print "self port number: ", selfport
+        else:
+            print "please give a self port number between 1024 and 65535"
+            exit()
+    if len(sys.argv) > 2:
+        peerport = int(sys.argv[2])
+        if peerport >= 1024 and peerport <= 65535:
+            print "peer port number: ", peerport
+        else:
+            print "please give a peer port number between 1024 and 65535"
+            exit()
+    if len(sys.argv) > 3:
+        windowsize = int(sys.argv[3])
+        print "window size: ", windowsize
+        if len(sys.argv) > 4:
+            if sys.argv[4] == "-d":
+                dropmode = "d"
+                if len(sys.argv) > 5:
+                    n = int(sys.argv[5])
+                    print "deterministic drop rate: ", n
+                else:
+                    print "please provide the deterministic drop interval"
+                    exit()
+            elif sys.argv[4] == "-p":
+                dropmode = "p"
+                if len(sys.argv) > 5:
+                    p = float(sys.argv[5])
+                    print "deterministic drop rate: ", p
+                else:
+                    print "please provide the probabilistic drop interval"
+                    exit()
             else:
-                print "please provide the deterministic drop interval"
-                exit()
-        elif sys.argv[4] == "-p":
-            dropmode = "p"
-            if len(sys.argv) > 5:
-                p = float(sys.argv[5])
-                print "deterministic drop rate: ", p
-            else:
-                print "please provide the probabilistic drop interval"
+                print "please provide a method for dropping packets"
                 exit()
         else:
-            print "please provide a method for dropping packets"
-            exit()
+            goodArgs = False
     else:
         goodArgs = False
-else:
-    goodArgs = False
 
-if goodArgs is False:
-    print "Usage: <self-port> <peer-port> <window-size> [ -d <value-of-n> | -p <value-of-p> ]"
-    sys.exit
+    if goodArgs is False:
+        print "Usage: <self-port> <peer-port> <window-size> [ -d <value-of-n> | -p <value-of-p> ]"
+        exit()
 
-try:
-    # start thread to listen to inbound traffic
-    # listensocket.bind(('', selfport))
-    # listenthread = threading.Thread(target=listen, args=())
-    # listenthread.daemon = True
-    # listenthread.start()
+    try:
+        # initialize variables
+        buffersize = windowsize * 3
+        for i in range(0, buffersize):
+            sendingbuffer.append(None)
+        sequencemax = windowsize - 1
 
-    # initialize sequence max
-    sequencemax = windowsize - 1
+        # start thread to listen to inbound traffic
+        # listensocket.bind(('', selfport))
+        # listenthread = threading.Thread(target=listen, args=())
+        # listenthread.daemon = True
+        # listenthread.start()
 
-    # start command input functionality
-    input()
-    exit()
-except (KeyboardInterrupt):
-    print "\n[exiting]"
-    exit()
+        # start thread to send packets in sending buffer
+        # listensocket.bind(('', selfport))
+        sendthread = threading.Thread(target=send_message, args=())
+        sendthread.daemon = True
+        sendthread.start()
+
+
+
+        # start command input functionality
+        input()
+        exit()
+    except (KeyboardInterrupt):
+        print "\n[exiting]"
+        exit()
+
+
+if __name__ == "__main__":
+    main()
