@@ -33,7 +33,7 @@ buffersize = 0
 bufferindex = 0
 sendingindex = 0
 sendingbuffer = []
-timer = 0
+timeout = datetime.datetime.now()
 listensocket = socket(AF_INET, SOCK_DGRAM)
 
 
@@ -43,21 +43,23 @@ Thread for listening to incoming UDP messages
 def listen():
     global sequencebase, sequencemax, windowsize, listensocket, requestnum
     while True:
-        sender, data = listensocket.recvfrom(1024)
+        data, sender = listensocket.recvfrom(1024)
         datasplit = data.split(";")
         if datasplit[0] == "a":
             # received an ack
-            sequencebase = datasplit[1]+1
+            sequencebase = int(datasplit[1])+1
             sequencemax = sequencebase + windowsize
+            sendingbuffer[datasplit[1]] = None
             print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " received, window moves to " + str(sequencebase)
         elif datasplit[0] == "s":
             # received a data packet
             print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[1]) + " " + str(datasplit[1]) + " received"
             ack = "a;" + str(datasplit[1])
-            listensocket.sendto(ack, (sender[0],sender[1]))
-            if datasplit[1] == requestnum:
+            listensocket.sendto(ack, (ip,peerport))
+            sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK" + str(requestnum) + " sent, expecting packet")
+            if int(datasplit[1]) == requestnum:
                 requestnum += 1
-            print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " sent, expecting packet" + str(requestnum)
+            print str(requestnum)
 
 
 """
@@ -75,43 +77,34 @@ def buffer_add(data):
         bufferindex = 0
     # print sendingbuffer
 
+
 """
 sending function
 """
 def send_message():
     while True:
-        global sendingbuffer
-        global bufferindex
-        global sequencebase
-        global sequencemax
+        global sendingbuffer, bufferindex, sequencebase, sequencemax, timeout, buffersize
         nextseqnum = 0
-        # sendsocket = socket(AF_INET, SOCK_DGRAM)
-        # sendsocket.settimeout(.5)
+        sendsocket = socket(AF_INET, SOCK_DGRAM)
         while sendingbuffer[sequencebase] is not None:
             # print "meow ", sequencebase, " ", sequencemax
-            for i in range(sequencebase, sequencemax):
-                split = sendingbuffer[i].split(";")
+            for i in range(0, 4):
+                split = sendingbuffer[(sequencebase+i) % buffersize].split(";")
+                sendsocket.sendto(sendingbuffer[i], (ip, peerport))
+                if i == 0:
+                    timeout = datetime.datetime.now() + datetime.timedelta(0,3)
+                print sendingbuffer
                 print "[" + str(datetime.datetime.now()) +"] packet" + split[1] + " " + split[2] + " sent"
-                sendingbuffer[nextseqnum] = None
                 nextseqnum += 1
                 if nextseqnum >= len(sendingbuffer):
                     nextseqnum = 0
                 if sendingbuffer[nextseqnum] is None:
                     break
+            while datetime.datetime.now() <= timeout:
+                pass
+        sendsocket.close()
 
-        #     sendsocket.sendto(me, (ip, peerport))
-        #     try:
-        #         data, sender = sendsocket.recvfrom(1024)
-        #     except timeout:
-        #         print ">>> [No ACK from <" + recipient + ">, message sent to server.]"
-        #         chattimeout = offline_chat(message)
-        #         if chattimeout is True:
-        #             break
-        #     else:
-        #         for name in clientTable:
-        #             if sender[0] == clientTable[name]['ip'] and sender[1] == clientTable[name]['port']:
-        #                 print ">>> [Message received by <" + name + ">.]"
-        # sendsocket.close()
+
 
 
 """
@@ -148,7 +141,7 @@ def main():
     ./gbnnode.py 6000 6001 5 -d 3
     ./gbnnode.py 6000 6001 5 -p 0.333
     """
-    global selfport, peerport, windowsize, dropmode, n, p, sequencemax
+    global selfport, peerport, windowsize, dropmode, n, p, sequencemax, buffersize
 
     goodArgs = True
     if len(sys.argv) > 1:
@@ -205,10 +198,10 @@ def main():
         sequencemax = windowsize - 1
 
         # start thread to listen to inbound traffic
-        # listensocket.bind(('', selfport))
-        # listenthread = threading.Thread(target=listen, args=())
-        # listenthread.daemon = True
-        # listenthread.start()
+        listensocket.bind(('', selfport))
+        listenthread = threading.Thread(target=listen, args=())
+        listenthread.daemon = True
+        listenthread.start()
 
         # start thread to send packets in sending buffer
         # listensocket.bind(('', selfport))
@@ -222,6 +215,7 @@ def main():
         input()
         exit()
     except (KeyboardInterrupt):
+        listensocket.close()
         print "\n[exiting]"
         exit()
 
