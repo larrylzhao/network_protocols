@@ -18,7 +18,8 @@ import os
 import datetime
 import shutil
 
-ip = "127.0.0.1"
+# ip = "127.0.0.1"
+ip = "localhost"
 selfport = 0
 peerport = 0
 windowsize = 0
@@ -36,6 +37,7 @@ buffersize = 0
 bufferindex = 0
 sendingindex = 0
 sendingbuffer = []
+transmitstate = []
 timeoutStarted = False
 timeout = datetime.datetime.now()
 listensocket = socket(AF_INET, SOCK_DGRAM)
@@ -52,6 +54,8 @@ def message_finished():
     rcvackcnt = 0
     requestnum = 0
     timeoutStarted = False
+    # for i in range(0, buffersize):
+    #     sendingbuffer[i] = None
     sys.stdout.write("\nnode> ")
     sys.stdout.flush()
 
@@ -64,11 +68,10 @@ def listen():
         data, sender = listensocket.recvfrom(1024)
         datasplit = data.split(";")
         if datasplit[0] == "a":
-            print "aaaaaaa"
             # received an ack
             #TODO need to fix logic for receiving the right ack
             rcvdack = int(datasplit[1])
-            for i in range(0, 4):
+            for i in range(0, windowsize):
                 last = False
                 seqnum = (sequencebase + i) % buffersize
                 if rcvdack == seqnum:
@@ -78,17 +81,23 @@ def listen():
                     for j in range(0, i+1):
                         bufferindex = (sequencebase + j) % buffersize
                         sendingbuffer[bufferindex] = None
+                        transmitstate[bufferindex] = False
                         # print sendingbuffer
                         rcvackcnt += 1
-                    timeout = datetime.datetime.now() + datetime.timedelta(0,3)
-                    print "timeout reset ", timeout - datetime.datetime.now()
+                    timeoutStarted = False
                     sequencebase = seqnum+1
+                    # reset the timer if window 0 was already sent
+                    if transmitstate[sequencebase] is True:
+                        timeoutStarted = True
+                        timeout = datetime.datetime.now() + datetime.timedelta(0,3)
+                        print "timeout reset ", timeout - datetime.datetime.now()
+
                     last = True
                 if last is True:
                     break
 
 
-            print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase) + "rcvcnt " + str(rcvackcnt)
+            print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
 
             if rcvackcnt == messagesize:
                 print "last ACK received"
@@ -137,7 +146,7 @@ def buffer_add(data):
 sending function
 """
 def send_message():
-    global sendingbuffer, bufferindex, sequencebase, sequencemax,timeoutStarted, timeout, buffersize
+    global sendingbuffer, bufferindex, sequencebase, sequencemax,timeoutStarted, timeout, buffersize, windowsize, transmitstate
     while True:
         if timeoutStarted is True:
             print "timeout ", timeout - datetime.datetime.now()
@@ -149,7 +158,7 @@ def send_message():
 
         if sendingbuffer[sequencebase] is not None:
 
-            for i in range(0, 4):
+            for i in range(0, windowsize):
                 seqnum = (sequencebase + i) % buffersize
                 split = []
                 try:
@@ -157,6 +166,7 @@ def send_message():
                 except:
                     break
                 sendsocket.sendto(sendingbuffer[seqnum], (ip, peerport))
+                transmitstate[seqnum] = True
                 if timeoutStarted is False:
                     timeoutStarted = True
                     timeout = datetime.datetime.now() + datetime.timedelta(0,3)
@@ -207,7 +217,7 @@ def main():
     python gbnnode.py 6000 6001 5 -d 3
     ./gbnnode.py 6000 6001 5 -p 0.333
     """
-    global selfport, peerport, windowsize, dropmode, n, p, sequencemax, buffersize
+    global selfport, peerport, windowsize, dropmode, n, p, sequencemax, buffersize, transmitstate
 
     goodArgs = True
     if len(sys.argv) > 1:
@@ -261,6 +271,7 @@ def main():
         buffersize = windowsize * 3
         for i in range(0, buffersize):
             sendingbuffer.append(None)
+            transmitstate.append(False)
         sequencemax = windowsize - 1
 
         # start thread to listen to inbound traffic
