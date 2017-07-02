@@ -9,6 +9,9 @@
 #                                                                   #
 #####################################################################
 
+# Known bugs
+# keeps trying to resend last packet if last ACK was dropped.
+
 import sys
 import threading
 import re
@@ -17,6 +20,7 @@ from socket import *
 import os
 import datetime
 import shutil
+import random
 
 # ip = "127.0.0.1"
 ip = "localhost"
@@ -26,18 +30,18 @@ windowsize = 0
 dropmode = "" #d(deterministic) or p(probabilistic)
 n = 0
 p = 0
-acknum = 0
+acknum = -1 #need to start negative in case first packet is dropped. otherwise it'd send ack0
 requestnum = 0
 sequencebase = 0
-sequencemax = 0
 messagesize = 0
 rcvmsgcnt = 0
 rcvackcnt = 0
 buffersize = 0
 bufferindex = 0
-sendingindex = 0
 sendingbuffer = []
 transmitstate = []
+pckdropcnt = 0
+pckcnt = 0
 timeoutStarted = False
 timeout = datetime.datetime.now()
 listensocket = socket(AF_INET, SOCK_DGRAM)
@@ -48,14 +52,27 @@ Function that is called when an entire message is received
 prints out summary
 """
 def message_finished():
-    global rcvmsgcnt, rcvackcnt, requestnum, timeoutStarted
-    print "Summary "
+    global rcvmsgcnt, rcvackcnt, requestnum, timeoutStarted, pckdropcnt, pckcnt, acknum, sequencebase, messagesize, bufferindex, timeout, transmitstate, sendingbuffer
+
+
+    lossrate = 100.0 * (float(pckdropcnt) / float(pckcnt))
+    print "[Summary] "+ str(pckdropcnt) + "/" + str(pckcnt) + "packets discarded, loss rate = " + str(lossrate) + "%"
+
+    # reset variables
+    acknum = -1
+    requestnum = 0
+    sequencebase = 0
+    messagesize = 0
     rcvmsgcnt = 0
     rcvackcnt = 0
-    requestnum = 0
+    bufferindex = 0
+    pckdropcnt = 0
+    pckcnt = 0
     timeoutStarted = False
-    # for i in range(0, buffersize):
-    #     sendingbuffer[i] = None
+    timeout = datetime.datetime.now()
+    for i in range(0, buffersize):
+        sendingbuffer[i] = None
+        transmitstate[i] = False
     sys.stdout.write("\nnode> ")
     sys.stdout.flush()
 
@@ -63,67 +80,86 @@ def message_finished():
 Thread for listening to incoming UDP messages
 """
 def listen():
-    global sequencebase, sequencemax, windowsize, listensocket, acknum, requestnum, rcvmsgcnt, rcvackcnt, messagesize, buffersize, sendingbuffer, timeoutStarted, timeout
+    global dropmode, n, pckdropcnt, pckcnt, sequencebase, windowsize, listensocket, acknum, requestnum, rcvmsgcnt, rcvackcnt, messagesize, buffersize, sendingbuffer, timeoutStarted, timeout
+
+    dropcnt = 0
     while True:
         data, sender = listensocket.recvfrom(1024)
+        pckcnt += 1
+        droppkt = False
+        if dropmode == "d" and n != 0:
+            if dropcnt == n-1:
+                droppkt = True
+                pckdropcnt += 1
+            dropcnt = (dropcnt + 1) % n
+        else:
+            if random.uniform(0, 1) <= p:
+                droppkt = True
+                pckdropcnt += 1
+
         datasplit = data.split(";")
         if datasplit[0] == "a":
             # received an ack
             rcvdack = int(datasplit[1])
-            for i in range(0, windowsize):
-                last = False
-                seqnum = (sequencebase + i) % buffersize
-                if rcvdack == seqnum:
-                    # got an ack that is in the window
-                    # acknowledge all packets in the window up to the ack and move the window
-                    for j in range(0, i+1):
-                        bufferindex = (sequencebase + j) % buffersize
-                        sendingbuffer[bufferindex] = None
-                        transmitstate[bufferindex] = False
-                        # print sendingbuffer
-                        rcvackcnt += 1
-                    timeoutStarted = False
-                    sequencebase = (seqnum + 1) % buffersize
-                    # reset the timer if window 0 was already sent
-                    if transmitstate[sequencebase] is True:
-                        timeoutStarted = True
-                        timeout = datetime.datetime.now() + datetime.timedelta(0,3)
-                        # print "timeout reset ", timeout - datetime.datetime.now()
-
-                    last = True
-                if last is True:
-                    break
-
-
-            print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
-            # print sendingbuffer
-            # print transmitstate
-            if rcvackcnt == messagesize:
-                print "last ACK received"
-                message_finished()
-        elif datasplit[0] == "s":
-            # received a data packet
-            print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
-
-            sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK")
-
-            if int(datasplit[2]) == requestnum:
-                acknum = requestnum
-                ack = "a;" + str(acknum)
-                listensocket.sendto(ack, (ip,peerport))
-                sys.stdout.write(str(acknum) + " sent")
-                requestnum = (requestnum + 1) % buffersize
-                rcvmsgcnt += 1
-                if rcvmsgcnt == int(datasplit[1]):
-                    # last packet was received
-                    print ", full message received"
-                    message_finished()
-                else:
-                    print ", expecting packet" + str(requestnum)
+            if droppkt is True:
+                print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " discarded"
             else:
-                ack = "a;" + str(acknum)
-                listensocket.sendto(ack, (ip,peerport))
-                print str(acknum) + " sent, expecting packet" + str(requestnum)
+                if rcvdack != -1:
+                    for i in range(0, windowsize):
+                        last = False
+                        seqnum = (sequencebase + i) % buffersize
+                        if rcvdack == seqnum:
+                            # got an ack that is in the window
+                            # acknowledge all packets in the window up to the ack and move the window
+                            for j in range(0, i+1):
+                                bufferindex = (sequencebase + j) % buffersize
+                                sendingbuffer[bufferindex] = None
+                                transmitstate[bufferindex] = False
+                                # print sendingbuffer
+                                rcvackcnt += 1
+                            timeoutStarted = False
+                            sequencebase = (seqnum + 1) % buffersize
+                            # reset the timer if window 0 was already sent
+                            if transmitstate[sequencebase] is True:
+                                timeoutStarted = True
+                                timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
+                                # print "timeout reset ", timeout - datetime.datetime.now()
+
+                            last = True
+                        if last is True:
+                            break
+                    print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
+                    # print sendingbuffer
+                    # print transmitstate
+                    if rcvackcnt == messagesize:
+                        print "last ACK received"
+                        message_finished()
+        elif datasplit[0] == "s":
+            if droppkt is True:
+                print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " discarded"
+            else:
+                # received a data packet
+                print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
+
+                sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK")
+
+                if int(datasplit[2]) == requestnum:
+                    acknum = requestnum
+                    ack = "a;" + str(acknum)
+                    listensocket.sendto(ack, (ip,peerport))
+                    sys.stdout.write(str(acknum) + " sent")
+                    requestnum = (requestnum + 1) % buffersize
+                    rcvmsgcnt += 1
+                    if rcvmsgcnt == int(datasplit[1]):
+                        # last packet was received
+                        print ", full message received"
+                        message_finished()
+                    else:
+                        print ", expecting packet" + str(requestnum)
+                else:
+                    ack = "a;" + str(acknum)
+                    listensocket.sendto(ack, (ip,peerport))
+                    print str(acknum) + " sent, expecting packettt" + str(requestnum)
 
 
 
@@ -148,7 +184,7 @@ def buffer_add(data):
 sending function
 """
 def send_message():
-    global sendingbuffer, bufferindex, sequencebase, sequencemax,timeoutStarted, timeout, buffersize, windowsize, transmitstate
+    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate
     while True:
         # don't send window again while the timer is active
         # while timeoutStarted is True and datetime.datetime.now() <= timeout:
@@ -158,20 +194,18 @@ def send_message():
         base = sequencebase
         for i in range(0, windowsize):
             seqnum = (base + i) % buffersize
-            split = []
-            if sendingbuffer[seqnum] is not None:
-                if transmitstate[seqnum] is False:
-                    sendsocket.sendto(sendingbuffer[seqnum], (ip, peerport))
+            packet = sendingbuffer[seqnum]
+            trstate = transmitstate[seqnum]
+            if packet is not None:
+                if trstate is False:
+                    sendsocket.sendto(packet, (ip, peerport))
                     transmitstate[seqnum] = True
                     if timeoutStarted is False:
                         timeoutStarted = True
-                        timeout = datetime.datetime.now() + datetime.timedelta(0,3)
+                        timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
                     # print "seq ", sequencebase, sendingbuffer
-                    try:
-                        split = sendingbuffer[seqnum].split(";")
-                        print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " sent"
-                    except:
-                        pass
+                    split = packet.split(";")
+                    print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " sent"
         sendsocket.close()
 
 
@@ -180,7 +214,7 @@ resending function
 if message was already sent, wait for timeout to run out, then resend
 """
 def resend_message():
-    global sendingbuffer, bufferindex, sequencebase, sequencemax,timeoutStarted, timeout, buffersize, windowsize, transmitstate
+    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate
     while True:
         # don't send window again while the timer is active
         while timeoutStarted is True:
@@ -189,17 +223,19 @@ def resend_message():
             else:
                 print "timed out"
                 resendsocket = socket(AF_INET, SOCK_DGRAM)
+                base = sequencebase
                 for i in range(0, windowsize):
-                    seqnum = (sequencebase + i) % buffersize
-                    split = []
-                    if sendingbuffer[seqnum] is not None:
-                        if transmitstate[seqnum] is True:
-                            resendsocket.sendto(sendingbuffer[seqnum], (ip, peerport))
+                    seqnum = (base + i) % buffersize
+                    packet = sendingbuffer[seqnum]
+                    trstate = transmitstate[seqnum]
+                    if packet is not None:
+                        if trstate is True:
+                            resendsocket.sendto(packet, (ip, peerport))
                             if i == 0:
-                                timeout = datetime.datetime.now() + datetime.timedelta(0,3)
+                                timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
                             # print sendingbuffer
-                            split = sendingbuffer[seqnum].split(";")
-                            print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " sent"
+                            split = packet.split(";")
+                            print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " resent"
 
                 resendsocket.close()
 
@@ -239,8 +275,9 @@ def main():
     argument parser
     python gbnnode.py 6000 6001 5 -d 3
     ./gbnnode.py 6000 6001 5 -p 0.333
+    send abcdefghijklmnopqrstuvwxyz
     """
-    global selfport, peerport, windowsize, dropmode, n, p, sequencemax, buffersize, transmitstate
+    global selfport, peerport, windowsize, dropmode, n, p, buffersize, transmitstate
 
     goodArgs = True
     if len(sys.argv) > 1:
@@ -291,11 +328,10 @@ def main():
 
     try:
         # initialize variables
-        buffersize = windowsize * 3
+        buffersize = windowsize * 3 # not sure what buffer size should be
         for i in range(0, buffersize):
             sendingbuffer.append(None)
             transmitstate.append(False)
-        sequencemax = windowsize - 1
 
         # start thread to listen to inbound traffic
         listensocket.bind(('', selfport))
