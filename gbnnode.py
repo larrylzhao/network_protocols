@@ -69,7 +69,6 @@ def listen():
         datasplit = data.split(";")
         if datasplit[0] == "a":
             # received an ack
-            #TODO need to fix logic for receiving the right ack
             rcvdack = int(datasplit[1])
             for i in range(0, windowsize):
                 last = False
@@ -84,12 +83,12 @@ def listen():
                         # print sendingbuffer
                         rcvackcnt += 1
                     timeoutStarted = False
-                    sequencebase = seqnum+1
+                    sequencebase = (seqnum + 1) % buffersize
                     # reset the timer if window 0 was already sent
                     if transmitstate[sequencebase] is True:
                         timeoutStarted = True
                         timeout = datetime.datetime.now() + datetime.timedelta(0,3)
-                        print "timeout reset ", timeout - datetime.datetime.now()
+                        # print "timeout reset ", timeout - datetime.datetime.now()
 
                     last = True
                 if last is True:
@@ -97,8 +96,8 @@ def listen():
 
 
             print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
-            print sendingbuffer
-            print transmitstate
+            # print sendingbuffer
+            # print transmitstate
             if rcvackcnt == messagesize:
                 print "last ACK received"
                 message_finished()
@@ -156,9 +155,9 @@ def send_message():
         #     pass
 
         sendsocket = socket(AF_INET, SOCK_DGRAM)
-
+        base = sequencebase
         for i in range(0, windowsize):
-            seqnum = (sequencebase + i) % buffersize
+            seqnum = (base + i) % buffersize
             split = []
             if sendingbuffer[seqnum] is not None:
                 if transmitstate[seqnum] is False:
@@ -188,6 +187,7 @@ def resend_message():
             if datetime.datetime.now() <= timeout:
                 pass
             else:
+                print "timed out"
                 resendsocket = socket(AF_INET, SOCK_DGRAM)
                 for i in range(0, windowsize):
                     seqnum = (sequencebase + i) % buffersize
@@ -309,9 +309,9 @@ def main():
         sendthread.start()
 
         # start thread to resend packets that do not receive acks
-        # resendthread = threading.Thread(target=resend_message, args=())
-        # resendthread.daemon = True
-        # resendthread.start()
+        resendthread = threading.Thread(target=resend_message, args=())
+        resendthread.daemon = True
+        resendthread.start()
 
 
 
