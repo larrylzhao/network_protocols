@@ -31,7 +31,7 @@ sequencebase = 0
 sequencemax = 0
 messagesize = 0
 rcvmsgcnt = 0
-
+rcvackcnt = 0
 buffersize = 0
 bufferindex = 0
 sendingindex = 0
@@ -46,9 +46,12 @@ Function that is called when an entire message is received
 prints out summary
 """
 def message_finished():
+    global rcvmsgcnt, rcvackcnt, requestnum, timeoutStarted
     print "Summary "
     rcvmsgcnt = 0
+    rcvackcnt = 0
     requestnum = 0
+    timeoutStarted = False
     sys.stdout.write("\nnode> ")
     sys.stdout.flush()
 
@@ -56,20 +59,38 @@ def message_finished():
 Thread for listening to incoming UDP messages
 """
 def listen():
-    global sequencebase, sequencemax, windowsize, listensocket, acknum, requestnum, rcvmsgcnt, messagesize, buffersize, sendingbuffer
+    global sequencebase, sequencemax, windowsize, listensocket, acknum, requestnum, rcvmsgcnt, rcvackcnt, messagesize, buffersize, sendingbuffer, timeout
     while True:
         data, sender = listensocket.recvfrom(1024)
         datasplit = data.split(";")
         if datasplit[0] == "a":
+            print "aaaaaaa"
             # received an ack
+            #TODO need to fix logic for receiving the right ack
+            rcvdack = int(datasplit[1])
+            for i in range(0, 4):
+                last = False
+                seqnum = (sequencebase + i) % buffersize
+                if rcvdack == seqnum:
+                    # print "************************************ ", rcvdack, seqnum, i
+                    # got an ack that is in the window
+                    # acknowledge all packets in the window up to the ack and move the window
+                    for j in range(0, i+1):
+                        bufferindex = (sequencebase + j) % buffersize
+                        sendingbuffer[bufferindex] = None
+                        # print sendingbuffer
+                        rcvackcnt += 1
+                    timeout = datetime.datetime.now() + datetime.timedelta(0,3)
+                    print "timeout reset ", timeout - datetime.datetime.now()
+                    sequencebase = seqnum+1
+                    last = True
+                if last is True:
+                    break
 
-            sequencebase = int(datasplit[1])+1
-            sequencemax = sequencebase + windowsize
-            sendingbuffer[int(datasplit[1])] = None
-            print sendingbuffer
-            print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " received, window moves to " + str(sequencebase)
-            rcvmsgcnt += 1
-            if rcvmsgcnt == messagesize:
+
+            print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase) + "rcvcnt " + str(rcvackcnt)
+
+            if rcvackcnt == messagesize:
                 print "last ACK received"
                 message_finished()
         elif datasplit[0] == "s":
@@ -77,11 +98,11 @@ def listen():
             print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
             ack = "a;" + str(acknum)
             listensocket.sendto(ack, (ip,peerport))
-            print "ack num ", datasplit[2], acknum
-            sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK" + str(requestnum) + " sent")
+            sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK")
 
             if int(datasplit[2]) == requestnum:
                 acknum = requestnum
+                sys.stdout.write(str(acknum) + " sent")
                 requestnum = (requestnum + 1) % buffersize
                 rcvmsgcnt += 1
                 if rcvmsgcnt == int(datasplit[1]):
@@ -91,7 +112,7 @@ def listen():
                 else:
                     print ", expecting packet" + str(requestnum)
             else:
-                print ", expecting packet" + str(requestnum)
+                print str(acknum) + " sent, expecting packet" + str(requestnum)
 
 
 
@@ -118,16 +139,24 @@ sending function
 def send_message():
     global sendingbuffer, bufferindex, sequencebase, sequencemax,timeoutStarted, timeout, buffersize
     while True:
+        if timeoutStarted is True:
+            print "timeout ", timeout - datetime.datetime.now()
         # don't send window again while the timer is active
         while timeoutStarted is True and datetime.datetime.now() <= timeout:
             pass
 
         sendsocket = socket(AF_INET, SOCK_DGRAM)
-        while sendingbuffer[sequencebase] is not None:
+
+        if sendingbuffer[sequencebase] is not None:
+
             for i in range(0, 4):
                 seqnum = (sequencebase + i) % buffersize
-                split = sendingbuffer[seqnum].split(";")
-                sendsocket.sendto(sendingbuffer[j], (ip, peerport))
+                split = []
+                try:
+                    split = sendingbuffer[seqnum].split(";")
+                except:
+                    break
+                sendsocket.sendto(sendingbuffer[seqnum], (ip, peerport))
                 if timeoutStarted is False:
                     timeoutStarted = True
                     timeout = datetime.datetime.now() + datetime.timedelta(0,3)
@@ -136,6 +165,7 @@ def send_message():
                 seqnum = (seqnum + 1) % buffersize
                 if sendingbuffer[seqnum] is None:
                     break
+
 
         sendsocket.close()
 
