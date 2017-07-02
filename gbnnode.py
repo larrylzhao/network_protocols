@@ -28,6 +28,8 @@ p = 0
 requestnum = 0
 sequencebase = 0
 sequencemax = 0
+messagesize = 0
+rcvmsgcnt = 0
 
 buffersize = 0
 bufferindex = 0
@@ -38,10 +40,20 @@ listensocket = socket(AF_INET, SOCK_DGRAM)
 
 
 """
+Function that is called when an entire message is received
+prints out summary
+"""
+def message_finished():
+    print "Summary "
+    rcvmsgcnt = 0
+    sys.stdout.write("node> ")
+    sys.stdout.flush()
+
+"""
 Thread for listening to incoming UDP messages
 """
 def listen():
-    global sequencebase, sequencemax, windowsize, listensocket, requestnum
+    global sequencebase, sequencemax, windowsize, listensocket, requestnum, rcvmsgcnt, messagesize
     while True:
         data, sender = listensocket.recvfrom(1024)
         datasplit = data.split(";")
@@ -49,17 +61,29 @@ def listen():
             # received an ack
             sequencebase = int(datasplit[1])+1
             sequencemax = sequencebase + windowsize
-            sendingbuffer[datasplit[1]] = None
+            sendingbuffer[int(datasplit[1])] = None
             print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " received, window moves to " + str(sequencebase)
+            rcvmsgcnt += 1
+            if rcvmsgcnt == messagesize:
+                print "last ACK received"
+                message_finished()
         elif datasplit[0] == "s":
             # received a data packet
-            print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[1]) + " " + str(datasplit[1]) + " received"
-            ack = "a;" + str(datasplit[1])
+            print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
+            ack = "a;" + str(datasplit[2])
             listensocket.sendto(ack, (ip,peerport))
-            sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK" + str(requestnum) + " sent, expecting packet")
-            if int(datasplit[1]) == requestnum:
-                requestnum += 1
-            print str(requestnum)
+            rcvmsgcnt += 1
+            if rcvmsgcnt == messagesize:
+                # last packet was received
+                print "[" + str(datetime.datetime.now()) +"] ACK" + str(requestnum) + " sent, full message received"
+                message_finished()
+            else:
+                sys.stdout.write("[" + str(datetime.datetime.now()) +"] ACK" + str(requestnum) + " sent, expecting packet")
+                if int(datasplit[2]) == requestnum:
+                    requestnum += 1
+                print str(requestnum)
+
+
 
 
 """
@@ -70,7 +94,7 @@ def buffer_add(data):
     global bufferindex
     while sendingbuffer[bufferindex] is not None:
         pass
-    packet = "s;" + str(bufferindex) + ";" + str(data)
+    packet = "s;" + str(messagesize) + ";" + str(bufferindex) + ";" + str(data)
     sendingbuffer[bufferindex] = packet
     bufferindex += 1
     if bufferindex >= len(sendingbuffer):
@@ -89,12 +113,13 @@ def send_message():
         while sendingbuffer[sequencebase] is not None:
             # print "meow ", sequencebase, " ", sequencemax
             for i in range(0, 4):
-                split = sendingbuffer[(sequencebase+i) % buffersize].split(";")
-                sendsocket.sendto(sendingbuffer[i], (ip, peerport))
+                j = (sequencebase + i) % buffersize
+                split = sendingbuffer[j].split(";")
+                sendsocket.sendto(sendingbuffer[j], (ip, peerport))
                 if i == 0:
                     timeout = datetime.datetime.now() + datetime.timedelta(0,3)
                 print sendingbuffer
-                print "[" + str(datetime.datetime.now()) +"] packet" + split[1] + " " + split[2] + " sent"
+                print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " sent"
                 nextseqnum += 1
                 if nextseqnum >= len(sendingbuffer):
                     nextseqnum = 0
@@ -111,6 +136,7 @@ def send_message():
 handler for client input
 """
 def input():
+    global messagesize
     while True:
         input = raw_input('node> ')
         find = re.search('(\S*)', input)
@@ -123,9 +149,9 @@ def input():
                     print "message: ", message
                     # split message into list of chars
                     messagelist = list(message)
+                    messagesize = len(messagelist)
                     for i in range(0, len(messagelist)):
                         buffer_add(messagelist[i])
-
 
 
                 else:
