@@ -34,48 +34,46 @@ bufferindex = 0
 sendingindex = 0
 sendingbuffer = []
 timer = 0
-
-
 listensocket = socket(AF_INET, SOCK_DGRAM)
+
 
 """
 Thread for listening to incoming UDP messages
 """
-# def listen():
-#     while True:
-#         sender, data = selfport.recvfrom(1024)
-#         datasplit = data.split(";")
-#         if sender[0] == serverip and sender[1] == sPort:
-#             # messages from server
-#             try:
-#                 clientTable = json.loads(datasplit[1])
-#             except:
-#                 pass
-#             print datasplit[0]
-#         elif datasplit[0] == "CHAT":
-#             # chat messages from clients
-#             listensocket.sendto("ACK", (sender[0],sender[1]))
-#             find = re.search('^CHAT;'+datasplit[1]+';'+datasplit[2]+';(.*)', data)
-#             if find:
-#                 message = find.group(1)
-#                 print datasplit[1] + ": " + message
-#         sys.stdout.write(">>> ")
-#         sys.stdout.flush()
+def listen():
+    global sequencebase, sequencemax, windowsize, listensocket, requestnum
+    while True:
+        sender, data = listensocket.recvfrom(1024)
+        datasplit = data.split(";")
+        if datasplit[0] == "a":
+            # received an ack
+            sequencebase = datasplit[1]+1
+            sequencemax = sequencebase + windowsize
+            print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " received, window moves to " + str(sequencebase)
+        elif datasplit[0] == "s":
+            # received a data packet
+            print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[1]) + " " + str(datasplit[1]) + " received"
+            ack = "a;" + str(datasplit[1])
+            listensocket.sendto(ack, (sender[0],sender[1]))
+            if datasplit[1] == requestnum:
+                requestnum += 1
+            print "[" + str(datetime.datetime.now()) +"] ACK" + str(datasplit[1]) + " sent, expecting packet" + str(requestnum)
 
 
 """
 sending buffer
 """
-def buffer_add(packet):
+def buffer_add(data):
     global sendingbuffer
     global bufferindex
     while sendingbuffer[bufferindex] is not None:
         pass
+    packet = "s;" + str(bufferindex) + ";" + str(data)
     sendingbuffer[bufferindex] = packet
     bufferindex += 1
     if bufferindex >= len(sendingbuffer):
         bufferindex = 0
-    print sendingbuffer
+    # print sendingbuffer
 
 """
 sending function
@@ -93,7 +91,7 @@ def send_message():
             # print "meow ", sequencebase, " ", sequencemax
             for i in range(sequencebase, sequencemax):
                 split = sendingbuffer[i].split(";")
-                print "[" + str(datetime.datetime.now()) +"] packet" + split[0] + " " + split[1] + " sent"
+                print "[" + str(datetime.datetime.now()) +"] packet" + split[1] + " " + split[2] + " sent"
                 sendingbuffer[nextseqnum] = None
                 nextseqnum += 1
                 if nextseqnum >= len(sendingbuffer):
@@ -133,8 +131,7 @@ def input():
                     # split message into list of chars
                     messagelist = list(message)
                     for i in range(0, len(messagelist)):
-                        packet = str(i) + ";" + str(messagelist[i])
-                        buffer_add(packet)
+                        buffer_add(messagelist[i])
 
 
 
