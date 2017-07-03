@@ -24,12 +24,35 @@ routingTable = {}
 listensocket = socket(AF_INET, SOCK_DGRAM)
 
 """
-function to print the routing table
+function to print the table
 """
 def print_routing_table(port, table):
-    print "Node " + str(port) + " Routing Table"
+    print "[" + str(datetime.datetime.now()) +"] Node " + str(port) + " Routing Table"
     for key in table:
-        print key, "- (" + str(table[key]['weight']) + " -> " + str(key) + " ; Next hop -> Node " + str(table[key]['next'])
+        print "- (" + str(table[key]['weight']) + " -> " + str(key) \
+           + ") ; Next hop -> Node " + str(table[key]['next'])
+
+
+"""
+Function to send table
+"""
+def send_table(table):
+    global ip, localPort
+
+    sSocket = socket(AF_INET, SOCK_DGRAM)
+    for key in routingTable:
+        print "[" + str(datetime.datetime.now()) +"] Message sent from Node " + str(localPort) \
+              + " to Node " + str(key)
+        sSocket.sendto(str(localPort) + ";" + json.dumps(table), (ip,int(key)))
+    sSocket.close
+
+
+"""
+Function to update the local routing table if there is a faster route
+"""
+def update_table(neighborTable):
+    global localPort, routingTable
+    #TODO implement this
 
 
 """
@@ -44,20 +67,11 @@ def listen():
         datasplit = data.split(";")
         neighborPort = datasplit[0]
         neighborTable = json.loads(datasplit[1])
+        print "[" + str(datetime.datetime.now()) +"] Message received from Node " + str(neighborPort) \
+              + " to Node " + str(localPort)
         print_routing_table(neighborPort, neighborTable)
 
 
-"""
-Function to send table
-"""
-def send_table(table):
-    global ip, localPort
-
-    sSocket = socket(AF_INET, SOCK_DGRAM)
-    for key in routingTable:
-        print "sending table to " + str(key)
-        sSocket.sendto(str(localPort) + ";" + json.dumps(table, ensure_ascii=False), (ip,int(key)))
-    sSocket.close
 
 
 def main():
@@ -73,9 +87,7 @@ def main():
     goodArgs = True
     if len(sys.argv) > 1:
         localPort = int(sys.argv[1])
-        if 1025 <= localPort <= 65535:
-            print "local port number:", localPort
-        else:
+        if localPort < 1025 or localPort > 65535:
             print "please give a local port number between 1025 and 65535"
             print usage
             exit()
