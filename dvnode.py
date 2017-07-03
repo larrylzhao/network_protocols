@@ -34,8 +34,10 @@ return: null
 def print_routing_table(port, table):
     print "[" + str(datetime.datetime.now()) +"] Node " + str(port) + " Routing Table"
     for node in table:
-        print "- (" + str(table[node]['weight']) + " -> " + str(node) \
-           + ") ; Next hop -> Node " + str(table[node]['next'])
+        sys.stdout.write( "- (" + str(table[node]['weight']) + " -> " + str(node) + ");")
+        if str(node) != str(table[node]['next']):
+            sys.stdout.write(" Next hop -> Node " + str(table[node]['next']))
+        print ""
 
 
 """
