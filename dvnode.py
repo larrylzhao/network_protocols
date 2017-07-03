@@ -11,12 +11,9 @@
 
 import sys
 import threading
-import re
 from socket import *
 import datetime
-import random
 import json
-import unicodedata
 
 ip = "localhost"
 localPort = 0
