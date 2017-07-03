@@ -15,11 +15,8 @@
 import sys
 import threading
 import re
-import json
 from socket import *
-import os
 import datetime
-import shutil
 import random
 
 # ip = "127.0.0.1"
