@@ -118,7 +118,6 @@ def listen():
                                 bufferindex = (sequencebase + j) % buffersize
                                 sendingbuffer[bufferindex] = None
                                 transmitstate[bufferindex] = False
-                                # print sendingbuffer
                                 rcvcorrectackcnt += 1
                             timeoutStarted = False
                             sequencebase = (seqnum + 1) % buffersize
@@ -126,14 +125,11 @@ def listen():
                             if transmitstate[sequencebase] is True:
                                 timeoutStarted = True
                                 timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
-                                # print "timeout reset ", timeout - datetime.datetime.now()
 
                             last = True
                         if last is True:
                             break
                     print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
-                    # print sendingbuffer
-                    # print transmitstate
                     if rcvcorrectackcnt == messagesize:
                         pckdropcnt = sentpckcnt - rcvtotalackcnt
                         print "last ACK received"
@@ -196,9 +192,7 @@ sending function
 def send_message():
     global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt, sendlock
     while True:
-        # don't send window again while the timer is active
-        # while timeoutStarted is True and datetime.datetime.now() <= timeout:
-        #     pass
+
         if sendlock is False:
             sendsocket = socket(AF_INET, SOCK_DGRAM)
             base = sequencebase
@@ -226,7 +220,7 @@ resending function
 if message was already sent, wait for timeout to run out, then resend
 """
 def resend_message():
-    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt
+    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt, sendlock
     while True:
         # don't send window again while the timer is active
         if timeoutStarted is True:

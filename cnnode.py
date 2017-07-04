@@ -14,10 +14,27 @@ import threading
 from socket import *
 import dvnode
 import datetime
+import random
 
 
 pckcnt = 0
+acknum = -1 #need to start negative in case first packet is dropped. otherwise it'd send ack0
+requestnum = 0
+sequencebase = 0
+messagesize = 0
+rcvmsgcnt = 0
+rcvcorrectackcnt = 0
+rcvtotalackcnt = 0
+buffersize = 0
+bufferindex = 0
+sendingbuffer = []
+transmitstate = []
 pckdropcnt = 0
+sentpckcnt = 0
+timeoutStarted = False
+timeout = datetime.datetime.now()
+sendlock = False
+windowsize = 5
 
 """
 Thread for listening to incoming UDP messages
@@ -32,16 +49,68 @@ def listen(ip, localPort, routingTable, iteration, listensocket, lossRateTable):
             # getting a data packet for calculating loss
             # data schema: a;acknum
             #              s;senderport;data
-            global pckcnt, pckdropcnt
+            global pckdropcnt, sentpckcnt, sequencebase, windowsize, \
+                acknum, requestnum, rcvmsgcnt, rcvcorrectackcnt, messagesize, buffersize, \
+                sendingbuffer, timeoutStarted, timeout, rcvtotalackcnt
 
             pckcnt += 1
             droppkt = False
-                if random.uniform(0, 1) <= lossRateTable:
-                    droppkt = True
-                    pckdropcnt += 1
+            if random.uniform(0, 1) <= lossRateTable:
+                droppkt = True
+                pckdropcnt += 1
             if datasplit[0] == "a":
-            elif datasplit[0] == "s":
+                # received an ack
+                rcvdack = int(datasplit[1])
 
+                rcvtotalackcnt += 1
+                if rcvdack != -1:
+                    for i in range(0, windowsize):
+                        last = False
+                        seqnum = (sequencebase + i) % buffersize
+                        if rcvdack == seqnum:
+                            # got an ack that is in the window
+                            # acknowledge all packets in the window up to the ack and move the window
+                            for j in range(0, i+1):
+                                bufferindex = (sequencebase + j) % buffersize
+                                sendingbuffer[bufferindex] = None
+                                transmitstate[bufferindex] = False
+                                rcvcorrectackcnt += 1
+                            timeoutStarted = False
+                            sequencebase = (seqnum + 1) % buffersize
+                            # reset the timer if window 0 was already sent
+                            if transmitstate[sequencebase] is True:
+                                timeoutStarted = True
+                                timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
+                            last = True
+                        if last is True:
+                            break
+                    print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
+                    # if rcvcorrectackcnt == messagesize:
+                    #     pckdropcnt = sentpckcnt - rcvtotalackcnt
+                    #     print "last ACK received"
+                    #     message_finished()
+            elif datasplit[0] == "s":
+                peerport = datasplit[1]
+                if random.uniform(0, 1) <= lossRateTable[peerport]:
+                    print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " discarded"
+                else:
+                    # received a data packet
+                    print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
+
+                    ackMsg = "[" + str(datetime.datetime.now()) +"] ACK"
+                    if int(datasplit[2]) == requestnum:
+                        acknum = requestnum
+                        ack = "a;" + str(acknum)
+                        listensocket.sendto(ack, (ip,peerport))
+                        sentpckcnt += 1
+                        ackMsg = ackMsg + str(acknum) + " sent"
+                        requestnum = (requestnum + 1) % buffersize
+                        print ackMsg + ", expecting packet" + str(requestnum)
+                    else:
+                        ack = "a;" + str(acknum)
+                        listensocket.sendto(ack, (ip,peerport))
+                        sentpckcnt += 1
+                        print ackMsg + str(acknum) + " sent, expecting packet" + str(requestnum)
         else:
             # dv updates
             # data schema: neighborPort;serialized json object for neighbor's routing table
