@@ -9,6 +9,9 @@
 #                                                                   #
 #####################################################################
 
+# Known bugs
+# Loss rate calculation is working, but the routing table does not update properly
+
 import sys
 import threading
 from socket import *
@@ -46,7 +49,7 @@ sendlock = {}
 """
 Thread for listening to incoming UDP messages
 """
-def listen(ip, localPort, routingTable, listensocket, lossRateTable):
+def listen(ip, localPort, routingTable, listensocket, lossRateTable, neighbors):
 
     global pckdropcnt, sentpckcnt, sequencebase, windowsize, \
         acknum, requestnum, rcvmsgcnt, rcvcorrectackcnt, messagesize, buffersize, \
@@ -124,11 +127,11 @@ def listen(ip, localPort, routingTable, listensocket, lossRateTable):
             tableUpdated = dvnode.update_table(localPort, neighborPort, routingTable, neighborTable)
             # always send if node has never sent table before
             if iteration == 0:
-                dvnode.send_table(ip, localPort, routingTable)
+                dvnode.send_table(ip, localPort, routingTable, neighbors)
                 iteration += 1
 
             elif tableUpdated is True:
-                dvnode.send_table(ip, localPort, routingTable)
+                dvnode.send_table(ip, localPort, routingTable, neighbors)
 
 
 def buffer_start(localPort, node):
@@ -141,22 +144,36 @@ def buffer_start(localPort, node):
             buffer_add(localPort, node)
 
 
-def loss_status():
+def loss_status(routingTable, neighbors):
     while iteration == 0:
         pass
-    global sendTable, sentpckcnt, rcvtotalackcnt
+    global sendTable, sentpckcnt, rcvtotalackcnt, localPort, ip
     lossStatusTimer = datetime.datetime.now() + datetime.timedelta(0,1)
+    updateTableTimer = datetime.datetime.now() + datetime.timedelta(0,5)
+    weightTable = {}
     while True:
         while datetime.datetime.now() <= lossStatusTimer:
             pass
         for node in sendTable:
             pckdropcnt = sentpckcnt[node] - rcvtotalackcnt[node]
             lossrate = 0
+
             if sentpckcnt[node] != 0:
                 lossrate = round(float(pckdropcnt)/float(sentpckcnt[node]), 2)
+            weightTable[node] = lossrate
             print "[" + str(datetime.datetime.now()) +"] Link to " + node + ": " \
                 + str(sentpckcnt[node]) + " packets sent, " + str(pckdropcnt) \
                 + " packets lost, loss rate " + str(lossrate)
+        lossStatusTimer = datetime.datetime.now() + datetime.timedelta(0,1)
+
+        while datetime.datetime.now() <= updateTableTimer:
+            pass
+        for node in weightTable:
+            if routingTable[node]['weight'] != weightTable[node]:
+                routingTable[node]['weight'] = weightTable[node]
+                dvnode.print_routing_table(localPort, routingTable)
+                dvnode.send_table(ip, localPort, routingTable, neighbors)
+
         lossStatusTimer = datetime.datetime.now() + datetime.timedelta(0,1)
 
 
@@ -257,6 +274,7 @@ def main():
     global ip, localPort, sendTable, iteration
     lossRateTable = {}
     routingTable = {}
+    neighbors = []
     listensocket = socket(AF_INET, SOCK_DGRAM)
 
     usage = "cnnode <local-port> receive <neighbor1-port> <loss-rate-1> <neighbor2-port> <loss-rate-2> ... " \
@@ -303,9 +321,10 @@ def main():
                 neighborLossRate = float(sys.argv[i+1])
                 if neighborLossRate < 0.0 or neighborLossRate > 1.0:
                     print "please provide a valid loss rate for neighbor", neighborPort
+                neighbors.append(neighborPort)
                 lossRateTable[neighborPort] = neighborLossRate
                 routingTable[neighborPort] = {}
-                routingTable[neighborPort]['weight'] = 0
+                routingTable[neighborPort]['weight'] = 0.0
                 routingTable[neighborPort]['next'] = neighborPort
 
                 requestnum[neighborPort] = 0
@@ -329,8 +348,9 @@ def main():
                 print usage
                 exit()
             neighborPort = str(neighborPort)
+            neighbors.append(neighborPort)
             routingTable[neighborPort] = {}
-            routingTable[neighborPort]['weight'] = 0
+            routingTable[neighborPort]['weight'] = 0.0
             routingTable[neighborPort]['next'] = neighborPort
 
             sendTable[neighborPort] = 0
@@ -363,7 +383,7 @@ def main():
 
         # start thread to listen to inbound traffic
         listensocket.bind(('', int(localPort)))
-        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, listensocket, lossRateTable))
+        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, listensocket, lossRateTable, neighbors))
         listenthread.daemon = True
         listenthread.start()
 
@@ -375,8 +395,8 @@ def main():
             bufferaddthread.daemon = True
             bufferaddthread.start()
 
-            # start thread for printing loss status
-            lossthread = threading.Thread(target=loss_status, args=())
+            # start thread for calculating loss rate
+            lossthread = threading.Thread(target=loss_status, args=(routingTable, neighbors))
             lossthread.daemon = True
             lossthread.start()
 
@@ -391,7 +411,7 @@ def main():
             resendthread.start()
 
         if last is True:
-            dvnode.send_table(ip, localPort, routingTable)
+            dvnode.send_table(ip, localPort, routingTable, neighbors)
             iteration += 1
 
 

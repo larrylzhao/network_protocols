@@ -25,10 +25,10 @@ return: null
 def print_routing_table(port, table):
     print "[" + str(datetime.datetime.now()) +"] Node " + str(port) + " Routing Table"
     for node in table:
-        sys.stdout.write( "- (" + str(table[node]['weight']) + " -> " + str(node) + ");")
+        outStr = "- (" + str(table[node]['weight']) + " -> " + str(node) + ");"
         if str(node) != str(table[node]['next']):
-            sys.stdout.write(" Next hop -> Node " + str(table[node]['next']))
-        print ""
+            outStr = outStr + " Next hop -> Node " + str(table[node]['next'])
+        print outStr
 
 
 """
@@ -37,10 +37,10 @@ input: routing table
 output: UDP packet containing routing table to each neighbor
 return: null
 """
-def send_table(ip, localPort, table):
+def send_table(ip, localPort, table, neighbors):
     sSocket = socket(AF_INET, SOCK_DGRAM)
     for node in table:
-        if str(node) == str(table[node]['next']):
+        if node in neighbors:
             print "[" + str(datetime.datetime.now()) +"] Message sent from Node " + str(localPort) \
                   + " to Node " + str(node)
             sSocket.sendto(str(localPort) + ";" + json.dumps(table), (ip,int(node)))
@@ -78,7 +78,7 @@ def update_table(localPort, neighborPort, routingTable, neighborTable):
 """
 Thread for listening to incoming UDP messages
 """
-def listen(ip, localPort, routingTable, iteration, listensocket):
+def listen(ip, localPort, routingTable, iteration, listensocket, neighbors):
 
     while True:
         # data schema: neighborPort;serialized json object for neighbor's routing table
@@ -92,10 +92,10 @@ def listen(ip, localPort, routingTable, iteration, listensocket):
         tableUpdated = update_table(localPort, neighborPort, routingTable, neighborTable)
         # always send if node has never sent table before
         if iteration == 0:
-            send_table(ip, localPort, routingTable)
+            send_table(ip, localPort, routingTable, neighbors)
             iteration += 1
         elif tableUpdated is True:
-            send_table(ip, localPort, routingTable)
+            send_table(ip, localPort, routingTable, neighbors)
 
 
 
@@ -116,6 +116,7 @@ def main():
     localPort = 0
     iteration = 0
     routingTable = {}
+    neighbors = []
     listensocket = socket(AF_INET, SOCK_DGRAM)
 
     usage = "usage: dvnode <local-port> <neighbor1-port> <loss-rate-1> <neighbor2-port> <loss-rate-2> ... [last]"
@@ -153,6 +154,7 @@ def main():
             neighborWeight = float(sys.argv[i+1])
             if neighborWeight < 0.0 or neighborWeight > 1.0:
                 print "please provide a valid loss rate for neighbor", neighborPort
+            neighbors.append(neighborPort)
             routingTable[neighborPort] = {}
             routingTable[neighborPort]['weight'] = neighborWeight
             routingTable[neighborPort]['next'] = neighborPort
@@ -166,12 +168,12 @@ def main():
     try:
         # start thread to listen to inbound traffic
         listensocket.bind(('', int(localPort)))
-        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, iteration, listensocket))
+        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, iteration, listensocket, neighbors))
         listenthread.daemon = True
         listenthread.start()
 
         if last is True:
-            send_table(ip, localPort, routingTable)
+            send_table(ip, localPort, routingTable, neighbors)
             iteration += 1
 
         while True:
