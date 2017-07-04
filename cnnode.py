@@ -12,32 +12,27 @@
 import sys
 import threading
 from socket import *
-import datetime
-import json
 import dvnode
 
-ip = "localhost"
-localPort = 0
-iteration = 0
-lossRateTable = {}
-c = {}
-routingTable = {}
-listensocket = socket(AF_INET, SOCK_DGRAM)
+
 
 
 def main():
     """
     argument parser
-    python dvnode.py 1111 2222 .2 3333 .7
-    python dvnode.py 2222 1111 .2 3333 .1
-    python dvnode.py 3333 1111 .7 2222 .1 last
 
     python cnnode.py 1111 receive send 2222 3333
     python cnnode.py 2222 receive 1111 .1 send 3333 4444
     python cnnode.py 3333 receive 1111 .5 2222 .2 send 4444
     python cnnode.py 4444 receive 2222 .8 3333 .5 send last
     """
-    global localPort, iteration, lossRateTable, c, routingTable
+
+    ip = "localhost"
+    localPort = 0
+    iteration = 0
+    lossRateTable = {}
+    routingTable = {}
+    listensocket = socket(AF_INET, SOCK_DGRAM)
 
     usage = "cnnode <local-port> receive <neighbor1-port> <loss-rate-1> <neighbor2-port> <loss-rate-2> ... " \
             "<neighborM-port> <loss-rate-M> send <neighbor(M+1)-port> <neighbor(M+2)-port> ... <neighborN-port> [last]"
@@ -84,7 +79,6 @@ def main():
                 if neighborLossRate < 0.0 or neighborLossRate > 1.0:
                     print "please provide a valid loss rate for neighbor", neighborPort
                 lossRateTable[neighborPort] = neighborLossRate
-                c[neighborPort] = 0
                 routingTable[neighborPort] = {}
                 routingTable[neighborPort]['weight'] = 0
                 routingTable[neighborPort]['next'] = neighborPort
@@ -105,24 +99,24 @@ def main():
                 print usage
                 exit()
             neighborPort = str(neighborPort)
-            c[neighborPort] = 0
             routingTable[neighborPort] = {}
             routingTable[neighborPort]['weight'] = 0
             routingTable[neighborPort]['next'] = neighborPort
 
     dvnode.print_routing_table(localPort, routingTable)
-    print c
-    print lossRateTable
+    # print c
+    # print lossRateTable
 
     try:
         # start thread to listen to inbound traffic
         listensocket.bind(('', int(localPort)))
-        listenthread = threading.Thread(target=dvnode.listen, args=())
+        listenthread = threading.Thread(target=dvnode.listen, args=(ip, localPort, routingTable, iteration, listensocket))
         listenthread.daemon = True
         listenthread.start()
 
         if last is True:
-            dvnode.send_table(routingTable)
+            print "afeoiawjfoawiefjawfiojafiojfaieofjaoiwjfeajf"
+            dvnode.send_table(ip, localPort, routingTable)
             iteration += 1
 
         while True:
