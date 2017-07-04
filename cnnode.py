@@ -15,102 +15,104 @@ from socket import *
 import dvnode
 import datetime
 import random
+import json
 
 
-pckcnt = 0
-acknum = -1 #need to start negative in case first packet is dropped. otherwise it'd send ack0
-requestnum = 0
-sequencebase = 0
-messagesize = 0
-rcvmsgcnt = 0
-rcvcorrectackcnt = 0
-rcvtotalackcnt = 0
-buffersize = 0
-bufferindex = 0
-sendingbuffer = []
-transmitstate = []
-pckdropcnt = 0
-sentpckcnt = 0
-timeoutStarted = False
-timeout = datetime.datetime.now()
-sendlock = False
+ip = "localhost"
+localPort = 0
 windowsize = 5
+buffersize = 0
+iteration = 0
+
+sendTable = {}
+pckcnt = {}
+acknum = {}
+requestnum = {}
+sequencebase = {}
+messagesize = {}
+rcvmsgcnt = {}
+rcvcorrectackcnt = {}
+rcvtotalackcnt = {}
+bufferindex = {}
+sendingbuffer = {}
+transmitstate = {}
+pckdropcnt = {}
+sentpckcnt = {}
+timeoutStarted = {}
+timeout = {}
+sendlock = {}
+
 
 """
 Thread for listening to incoming UDP messages
 """
-def listen(ip, localPort, routingTable, iteration, listensocket, lossRateTable):
+def listen(ip, localPort, routingTable, listensocket, lossRateTable):
+
+    global pckdropcnt, sentpckcnt, sequencebase, windowsize, \
+        acknum, requestnum, rcvmsgcnt, rcvcorrectackcnt, messagesize, buffersize, \
+        sendingbuffer, timeoutStarted, timeout, rcvtotalackcnt, sendTable, iteration
 
     while True:
         data, sender = listensocket.recvfrom(1024)
         datasplit = data.split(";")
-
         if datasplit[0] == "a" or datasplit[0] == "s":
             # getting a data packet for calculating loss
-            # data schema: a;acknum
-            #              s;senderport;data
-            global pckdropcnt, sentpckcnt, sequencebase, windowsize, \
-                acknum, requestnum, rcvmsgcnt, rcvcorrectackcnt, messagesize, buffersize, \
-                sendingbuffer, timeoutStarted, timeout, rcvtotalackcnt
+            # data schema: a;senderport;acknum
+            #              s;senderport;bufferindex;data
+            node = datasplit[1]
 
-            pckcnt += 1
-            droppkt = False
-            if random.uniform(0, 1) <= lossRateTable:
-                droppkt = True
-                pckdropcnt += 1
+
             if datasplit[0] == "a":
                 # received an ack
-                rcvdack = int(datasplit[1])
+                rcvdack = int(datasplit[2])
 
-                rcvtotalackcnt += 1
+                rcvtotalackcnt[node] += 1
                 if rcvdack != -1:
                     for i in range(0, windowsize):
                         last = False
-                        seqnum = (sequencebase + i) % buffersize
+                        seqnum = (sequencebase[node] + i) % buffersize
                         if rcvdack == seqnum:
                             # got an ack that is in the window
                             # acknowledge all packets in the window up to the ack and move the window
                             for j in range(0, i+1):
-                                bufferindex = (sequencebase + j) % buffersize
-                                sendingbuffer[bufferindex] = None
-                                transmitstate[bufferindex] = False
-                                rcvcorrectackcnt += 1
-                            timeoutStarted = False
-                            sequencebase = (seqnum + 1) % buffersize
+                                bufferindex[node] = (sequencebase[node] + j) % buffersize
+                                sendingbuffer[node][bufferindex[node]] = None
+                                transmitstate[node][bufferindex[node]] = False
+                                rcvcorrectackcnt[node] += 1
+                            timeoutStarted[node] = False
+                            sequencebase[node] = (seqnum + 1) % buffersize
                             # reset the timer if window 0 was already sent
-                            if transmitstate[sequencebase] is True:
-                                timeoutStarted = True
-                                timeout = datetime.datetime.now() + datetime.timedelta(0,.5)
+                            if transmitstate[node][sequencebase[node]] is True:
+                                timeoutStarted[node] = True
+                                timeout[node] = datetime.datetime.now() + datetime.timedelta(0,.5)
                             last = True
                         if last is True:
                             break
-                    print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
+                    # print "[" + str(datetime.datetime.now()) +"] ACK" + str(rcvdack) + " received, window moves to " + str(sequencebase)
                     # if rcvcorrectackcnt == messagesize:
                     #     pckdropcnt = sentpckcnt - rcvtotalackcnt
                     #     print "last ACK received"
                     #     message_finished()
             elif datasplit[0] == "s":
-                peerport = datasplit[1]
-                if random.uniform(0, 1) <= lossRateTable[peerport]:
-                    print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " discarded"
+                if random.uniform(0, 1) <= lossRateTable[node]:
+                    pass
+                    # print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " discarded"
                 else:
                     # received a data packet
-                    print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
+                    # print "[" + str(datetime.datetime.now()) +"] packet" + str(datasplit[2]) + " " + str(datasplit[3]) + " received"
 
                     ackMsg = "[" + str(datetime.datetime.now()) +"] ACK"
-                    if int(datasplit[2]) == requestnum:
-                        acknum = requestnum
-                        ack = "a;" + str(acknum)
-                        listensocket.sendto(ack, (ip,peerport))
-                        sentpckcnt += 1
-                        ackMsg = ackMsg + str(acknum) + " sent"
-                        requestnum = (requestnum + 1) % buffersize
-                        print ackMsg + ", expecting packet" + str(requestnum)
+                    if int(datasplit[2]) == requestnum[node]:
+                        acknum[node] = requestnum[node]
+                        ack = "a;" + localPort + ";" + str(acknum[node])
+                        listensocket.sendto(ack, (ip,int(node)))
+                        ackMsg = ackMsg + str(acknum[node]) + " sent to " + node
+                        requestnum[node] = (requestnum[node] + 1) % buffersize
+                        # print ackMsg + ", expecting packet" + str(requestnum[node]), ack
                     else:
-                        ack = "a;" + str(acknum)
-                        listensocket.sendto(ack, (ip,peerport))
-                        sentpckcnt += 1
-                        print ackMsg + str(acknum) + " sent, expecting packet" + str(requestnum)
+                        ack = "a;" + localPort + ";" + str(acknum[node])
+                        listensocket.sendto(ack, (ip,int(node)))
+                        # print ackMsg + str(acknum[node]) + " sent to " + node + ", expecting packet" + str(requestnum[node]), ack
         else:
             # dv updates
             # data schema: neighborPort;serialized json object for neighbor's routing table
@@ -124,8 +126,122 @@ def listen(ip, localPort, routingTable, iteration, listensocket, lossRateTable):
             if iteration == 0:
                 dvnode.send_table(ip, localPort, routingTable)
                 iteration += 1
+
             elif tableUpdated is True:
                 dvnode.send_table(ip, localPort, routingTable)
+
+
+def buffer_start(localPort, node):
+    global iteration
+    # while True:
+    while iteration == 0:
+        pass
+    while True:
+        for node in sendTable:
+            buffer_add(localPort, node)
+
+
+def loss_status():
+    while iteration == 0:
+        pass
+    global sendTable, sentpckcnt, rcvtotalackcnt
+    lossStatusTimer = datetime.datetime.now() + datetime.timedelta(0,1)
+    while True:
+        while datetime.datetime.now() <= lossStatusTimer:
+            pass
+        for node in sendTable:
+            pckdropcnt = sentpckcnt[node] - rcvtotalackcnt[node]
+            lossrate = 0
+            if sentpckcnt[node] != 0:
+                lossrate = round(float(pckdropcnt)/float(sentpckcnt[node]), 2)
+            print "[" + str(datetime.datetime.now()) +"] Link to " + node + ": " \
+                + str(sentpckcnt[node]) + " packets sent, " + str(pckdropcnt) \
+                + " packets lost, loss rate " + str(lossrate)
+        lossStatusTimer = datetime.datetime.now() + datetime.timedelta(0,1)
+
+
+
+
+"""
+sending buffer
+"""
+def buffer_add(localPort, node):
+    global sendingbuffer
+    global bufferindex
+    while sendingbuffer[node][bufferindex[node]] is not None:
+        pass
+    packet = "s;" + localPort + ";" + str(bufferindex[node]) + ";x"
+    sendingbuffer[node][bufferindex[node]] = packet
+    bufferindex[node] += 1
+    if bufferindex[node] >= len(sendingbuffer[node]):
+        bufferindex[node] = 0
+        # print sendingbuffer
+
+
+
+
+"""
+probe sending function
+"""
+def send_message(node):
+    print "sending thread started for " + node
+    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt, sendlock
+    while True:
+
+        if sendlock[node] is False:
+            sendsocket = socket(AF_INET, SOCK_DGRAM)
+            base = sequencebase[node]
+            for i in range(0, windowsize):
+                seqnum = (base + i) % buffersize
+                packet = sendingbuffer[node][seqnum]
+                trstate = transmitstate[node][seqnum]
+                if packet is not None:
+                    if trstate is False:
+                        sendsocket.sendto(packet, (ip, int(node)))
+                        sentpckcnt[node] += 1
+                        transmitstate[node][seqnum] = True
+                        if timeoutStarted[node] is False:
+                            timeoutStarted[node] = True
+                            timeout[node] = datetime.datetime.now() + datetime.timedelta(0,.5)
+                        # print "seq ", sequencebase, sendingbuffer
+                        # split = packet.split(";")
+                        # print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " sent to " + node, packet
+            sendsocket.close()
+
+
+"""
+resending function
+if message was already sent, wait for timeout to run out, then resend
+"""
+def resend_message(node):
+    global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt, sendlock
+    while True:
+        # don't send window again while the timer is active
+        if timeoutStarted[node] is True:
+            if datetime.datetime.now() <= timeout[node]:
+                pass
+            else:
+                # print "timed out"
+                sendlock[node] = True
+                resendsocket = socket(AF_INET, SOCK_DGRAM)
+                base = sequencebase[node]
+                for i in range(0, windowsize):
+                    seqnum = (base + i) % buffersize
+                    packet = sendingbuffer[node][seqnum]
+                    trstate = transmitstate[node][seqnum]
+                    if packet is not None:
+                        # if trstate is True:
+                        resendsocket.sendto(packet, (ip, int(node)))
+                        sentpckcnt[node] += 1
+                        if i == 0:
+                            timeout[node] = datetime.datetime.now() + datetime.timedelta(0,.5)
+                        # print sendingbuffer
+                        # split = packet.split(";")
+                        # print "[" + str(datetime.datetime.now()) +"] packet" + split[2] + " " + split[3] + " resent to " + node, packet
+
+                resendsocket.close()
+                sendlock[node] = False
+
 
 
 def main():
@@ -138,9 +254,7 @@ def main():
     python cnnode.py 4444 receive 2222 .8 3333 .5 send last
     """
 
-    ip = "localhost"
-    localPort = 0
-    iteration = 0
+    global ip, localPort, sendTable, iteration
     lossRateTable = {}
     routingTable = {}
     listensocket = socket(AF_INET, SOCK_DGRAM)
@@ -193,12 +307,17 @@ def main():
                 routingTable[neighborPort] = {}
                 routingTable[neighborPort]['weight'] = 0
                 routingTable[neighborPort]['next'] = neighborPort
+
+                requestnum[neighborPort] = 0
+                acknum[neighborPort] = -1 #need to start negative in case first packet is dropped. otherwise it'd send ack0
+
             except:
                 print "please provide a neighbor loss rate for neighbor", neighborPort
                 print usage
                 exit()
-
+        print "loss rate table ", lossRateTable
     if probeMode == "send":
+        global sendingbuffer, bufferindex, sequencebase, timeoutStarted, timeout, buffersize, windowsize, transmitstate, sentpckcnt, sendlock
         for i in range(j, len(sys.argv)):
             if sys.argv[i] == "last":
                 last = True
@@ -214,21 +333,72 @@ def main():
             routingTable[neighborPort]['weight'] = 0
             routingTable[neighborPort]['next'] = neighborPort
 
+            sendTable[neighborPort] = 0
+            sequencebase[neighborPort] = 0
+            rcvcorrectackcnt[neighborPort] = 0
+            rcvtotalackcnt[neighborPort] = 0
+            bufferindex[neighborPort] = 0
+            sendingbuffer[neighborPort] = []
+            transmitstate[neighborPort] = []
+            pckdropcnt[neighborPort] = 0
+            sentpckcnt[neighborPort] = 0
+            timeoutStarted[neighborPort] = False
+            timeout[neighborPort] = datetime.datetime.now()
+            sendlock[neighborPort] = False
+
     dvnode.print_routing_table(localPort, routingTable)
     # print c
     # print lossRateTable
 
+
+
     try:
+        buffersize = windowsize * 2 # not sure what buffer size should be
+        for node in sendTable:
+            for i in range(0, buffersize):
+                sendingbuffer[node].append(None)
+                transmitstate[node].append(False)
+
+
+
         # start thread to listen to inbound traffic
         listensocket.bind(('', int(localPort)))
-        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, iteration, listensocket, lossRateTable))
+        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, listensocket, lossRateTable))
         listenthread.daemon = True
         listenthread.start()
 
+
+
+        for node in sendTable:
+            # start thread for populating buffer
+            bufferaddthread = threading.Thread(target=buffer_start, args=(localPort, node))
+            bufferaddthread.daemon = True
+            bufferaddthread.start()
+
+            # start thread for printing loss status
+            lossthread = threading.Thread(target=loss_status, args=())
+            lossthread.daemon = True
+            lossthread.start()
+
+            # start thread to send packets in sending buffer
+            sendthread = threading.Thread(target=send_message, args=(node,))
+            sendthread.daemon = True
+            sendthread.start()
+
+            # start thread to resend packets that do not receive acks
+            resendthread = threading.Thread(target=resend_message, args=(node,))
+            resendthread.daemon = True
+            resendthread.start()
+
         if last is True:
-            print "afeoiawjfoawiefjawfiojafiojfaieofjaoiwjfeajf"
             dvnode.send_table(ip, localPort, routingTable)
             iteration += 1
+
+
+            # while True:
+            # for i in range (0,21):
+            #     for node in sendTable:
+            #         buffer_add(localPort, node)
 
         while True:
             pass
