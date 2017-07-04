@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #####################################################################
 #                                                                   #
-#       Distance Vector Routing Algorithm                           #
+#       GBN and DV Algorithm                                        #
 #       CSEEW4119                                                   #
 #       Author: Larry Zhao                                          #
 #       UNI: LZ2479                                                 #
@@ -13,6 +13,7 @@ import sys
 import threading
 from socket import *
 import datetime
+import random
 import json
 
 ip = "localhost"
@@ -27,7 +28,7 @@ def print_routing_table(port, table):
     print "[" + str(datetime.datetime.now()) +"] Node " + str(port) + " Routing Table"
     for key in table:
         print "- (" + str(table[key]['weight']) + " -> " + str(key) \
-           + ") ; Next hop -> Node " + str(table[key]['next'])
+              + ") ; Next hop -> Node " + str(table[key]['next'])
 
 
 """
