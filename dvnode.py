@@ -61,7 +61,7 @@ output:  stdout local routing table
 return: True if local routing table is updated
 """
 def update_table(neighborPort, neighborTable):
-    global localPort, iteration, routingTable
+    global localPort, iteration, c, routingTable
     tableUpdated = False
     for node in neighborTable:
         if node != localPort:
