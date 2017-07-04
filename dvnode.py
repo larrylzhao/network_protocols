@@ -120,7 +120,7 @@ def main():
     python dvnode.py 3333 1111 .5 2222 .2 4444 .5
     python dvnode.py 4444 2222 .8 3333 .5 last
     """
-    global localPort, iteration, routingTable
+    global localPort, iteration, c, routingTable
 
     usage = "usage: dvnode <local-port> <neighbor1-port> <loss-rate-1> <neighbor2-port> <loss-rate-2> ... [last]"
     goodArgs = True
