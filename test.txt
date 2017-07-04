@@ -1,0 +1,30 @@
+send asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasd
+
+send asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdf
+
+send asdfasdfasdfasdfasdfasdfasdfasdfasdf
+
+python gbnnode.py 6001 6000 5 -d 0
+
+
+[2017-07-04 00:46:58.945410] packet4 d resent
+[2017-07-04 00:46:58.997238] ACK4 received, window moves to 5
+[2017-07-04 00:46:58.998601] packet5 f sent
+[2017-07-04 00:46:59.029667] ACK5 received, window moves to 6
+[2017-07-04 00:46:59.029916] packet6 a sent
+ [2017-07-04 00:46:59.052092] ACK6 received, window moves to 7
+[2017-07-04 00:46:59.052934] packet7 s sent
+ [2017-07-04 00:46:59.063973] ACK7 received, window moves to 8
+[2017-07-04 00:46:59.065141] packet8 d sent
+[2017-07-04 00:46:59.079671] ACK8 received, window moves to 9
+last ACK received
+[Summary] 701/2303packets discarded, loss rate = 30.4385584021%
+
+python gbnnode.py 6000 6001 5 -p .3
+
+
+
+if timer stopped
+    send entire window
+if timer started
+    send window if not TR

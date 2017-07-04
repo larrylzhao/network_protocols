@@ -13,8 +13,50 @@ import sys
 import threading
 from socket import *
 import dvnode
+import datetime
 
 
+pckcnt = 0
+pckdropcnt = 0
+
+"""
+Thread for listening to incoming UDP messages
+"""
+def listen(ip, localPort, routingTable, iteration, listensocket, lossRateTable):
+
+    while True:
+        data, sender = listensocket.recvfrom(1024)
+        datasplit = data.split(";")
+
+        if datasplit[0] == "a" or datasplit[0] == "s":
+            # getting a data packet for calculating loss
+            # data schema: a;acknum
+            #              s;senderport;data
+            global pckcnt, pckdropcnt
+
+            pckcnt += 1
+            droppkt = False
+                if random.uniform(0, 1) <= lossRateTable:
+                    droppkt = True
+                    pckdropcnt += 1
+            if datasplit[0] == "a":
+            elif datasplit[0] == "s":
+
+        else:
+            # dv updates
+            # data schema: neighborPort;serialized json object for neighbor's routing table
+            neighborPort = datasplit[0]
+            neighborTable = json.loads(datasplit[1])
+            print "[" + str(datetime.datetime.now()) +"] Message received from Node " + str(neighborPort) \
+                  + " to Node " + str(localPort)
+            # print_routing_table(neighborPort, neighborTable)
+            tableUpdated = dvnode.update_table(localPort, neighborPort, routingTable, neighborTable)
+            # always send if node has never sent table before
+            if iteration == 0:
+                dvnode.send_table(ip, localPort, routingTable)
+                iteration += 1
+            elif tableUpdated is True:
+                dvnode.send_table(ip, localPort, routingTable)
 
 
 def main():
@@ -110,7 +152,7 @@ def main():
     try:
         # start thread to listen to inbound traffic
         listensocket.bind(('', int(localPort)))
-        listenthread = threading.Thread(target=dvnode.listen, args=(ip, localPort, routingTable, iteration, listensocket))
+        listenthread = threading.Thread(target=listen, args=(ip, localPort, routingTable, iteration, listensocket, lossRateTable))
         listenthread.daemon = True
         listenthread.start()
 
